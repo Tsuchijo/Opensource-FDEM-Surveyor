@@ -284,8 +284,9 @@ class ThreeCoilSystem:
         min_coord = min(tx_coord, rx_coord)
         max_coord = max(tx_coord, rx_coord)
         # Add small margins to avoid edge effects
-        margin = 0.05 * abs(max_coord - min_coord) if max_coord != min_coord else 0.01
-        bracket = (min_coord + margin, max_coord - margin)
+        left_margin = self.tx_coil.radius + self.bucking_coil.radius
+        right_margin = self.rx_coil.radius + self.bucking_coil.radius
+        bracket = (min_coord + left_margin, max_coord - right_margin)
         print(f"Constraining bucking coil search along {axis}-axis between {bracket[0]:.3f}m and {bracket[1]:.3f}m")
 
         
@@ -300,38 +301,19 @@ class ThreeCoilSystem:
             self._M_bk_rx = None  # Force recalculation
             return self.M_total
 
-        try:
-            optimal_position = brentq(M_diff, bracket[0], bracket[1])
-            # Set the bucking coil to the optimal position
-            optimal_pos = original_position.copy()
-            optimal_pos[axis_idx] = optimal_position
-            self.bucking_coil.position = optimal_pos
-            self._M_bk_rx = None  # Force recalculation
-            return optimal_position
-        except ValueError as e:
-            # If brentq fails, try to find minimum absolute value
-            print(f"Zero crossing not found, searching for minimum |M_total|...")
-            
-            # Test many points in the bracket to find minimum
-            test_positions = np.linspace(bracket[0], bracket[1], 50)
-            M_values = []
-            
-            for pos in test_positions:
-                M_val = M_diff(pos)
-                M_values.append(M_val)
-            
-            # Find position with minimum absolute M_total
-            min_abs_idx = np.argmin(np.abs(M_values))
-            optimal_position = test_positions[min_abs_idx]
-            
-            # Set the bucking coil to the best position found
-            optimal_pos = original_position.copy()
-            optimal_pos[axis_idx] = optimal_position
-            self.bucking_coil.position = optimal_pos
-            self._M_bk_rx = None  # Force recalculation
-            
-            print(f"Best position found: {optimal_position:.4f}m with |M_total| = {abs(self.M_total):.6e}")
-            return optimal_position
+        # Use Brent's method to find the root of M_total = 0
+        print("Finding optimal bucking coil position...")
+        print(f"Searching in range: {bracket[0]:.3f}m to {bracket[1]:.3f}m")
+        print(f"Leftmost value: {M_diff(bracket[0]):.3e}, Rightmost value: {M_diff(bracket[1]):.3e}")
+
+        optimal_position = brentq(M_diff, bracket[0], bracket[-1], xtol=1e-6, rtol=1e-6, maxiter=1000)
+        # Set the bucking coil to the optimal position
+        optimal_pos = original_position.copy()
+        optimal_pos[axis_idx] = optimal_position
+        self.bucking_coil.position = optimal_pos
+        self._M_bk_rx = None  # Force recalculation
+        return optimal_position
+
 
     def simulate_primary_response(self, frequencies, v_in,
                                    self_capacitance_rx=0,

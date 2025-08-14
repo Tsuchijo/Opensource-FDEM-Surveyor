@@ -261,59 +261,41 @@ class ThreeCoilSystem:
         flux = dst_coil.integrate_flux(b_field_points, coords_dst)
         return flux / I_test
 
-    def find_bucking_distance(self, axis="x"):
+    def find_bucking_distance(self, axis="z", bracket=(0.01, 1.0)):
         """
-        Finds bucking coil position along 'axis' where M_total = 0.
-        
-        Parameters:
-        axis (str): Axis to move along ('x', 'y', or 'z')
-        bracket (tuple, optional): Search range. If None and constrain_between_coils=True,
-                                 uses positions between TX and RX coils
-        constrain_between_coils (bool): If True, constrains search between TX and RX coils
-        
-        Returns:
-        float: Optimal position coordinate along the specified axis
+        Finds bucking coil offset along 'axis' where M_total = 0.
+        The offset is applied relative to the bucking coil's current position.
+        Axis can be 'x', 'y', or 'z'. Bracket is search range in meters.
         """
         if self.bucking_coil is None:
             raise ValueError("No bucking coil defined.")
 
         axis_idx = {"x": 0, "y": 1, "z": 2}[axis]
         
-        tx_coord = self.tx_coil.position[axis_idx]
-        rx_coord = self.rx_coil.position[axis_idx]
-        min_coord = min(tx_coord, rx_coord)
-        max_coord = max(tx_coord, rx_coord)
-        # Add small margins to avoid edge effects
-        left_margin = self.tx_coil.radius + self.bucking_coil.radius
-        right_margin = self.rx_coil.radius + self.bucking_coil.radius
-        bracket = (min_coord + left_margin, max_coord - right_margin)
-        print(f"Constraining bucking coil search along {axis}-axis between {bracket[0]:.3f}m and {bracket[1]:.3f}m")
-
-        
         # Store the original bucking coil position
         original_position = self.bucking_coil.position.copy()
 
-        def M_diff(position_coord):
-            """Function that returns M_total for a given position coordinate."""
+        def M_diff(offset):
+            # Move bucking coil along the specified axis relative to its original position
             new_pos = original_position.copy()
-            new_pos[axis_idx] = position_coord  # Set absolute position, not offset
+            new_pos[axis_idx] += offset
             self.bucking_coil.position = new_pos
             self._M_bk_rx = None  # Force recalculation
             return self.M_total
 
-        # Use Brent's method to find the root of M_total = 0
-        print("Finding optimal bucking coil position...")
-        print(f"Searching in range: {bracket[0]:.3f}m to {bracket[1]:.3f}m")
-        print(f"Leftmost value: {M_diff(bracket[0]):.3e}, Rightmost value: {M_diff(bracket[1]):.3e}")
-
-        optimal_position = brentq(M_diff, bracket[0], bracket[-1], xtol=1e-6, rtol=1e-6, maxiter=1000)
-        # Set the bucking coil to the optimal position
-        optimal_pos = original_position.copy()
-        optimal_pos[axis_idx] = optimal_position
-        self.bucking_coil.position = optimal_pos
-        self._M_bk_rx = None  # Force recalculation
-        return optimal_position
-
+        try:
+            optimal_offset = brentq(lambda d: M_diff(d), bracket[0], bracket[1])
+            # Set the bucking coil to the optimal position
+            optimal_pos = original_position.copy()
+            optimal_pos[axis_idx] += optimal_offset
+            self.bucking_coil.position = optimal_pos
+            self._M_bk_rx = None  # Force recalculation
+            return optimal_offset
+        except ValueError as e:
+            # Restore original position if optimization fails
+            self.bucking_coil.position = original_position
+            self._M_bk_rx = None  # Force recalculation
+            raise e
 
     def simulate_primary_response(self, frequencies, v_in,
                                    self_capacitance_rx=0,
@@ -443,7 +425,7 @@ def test_three_coil_system():
     
     bucking_coil = Coil(
         orientation='z',
-        position=(0.5, 0, 0),  # Initial position (will be optimized)
+        position=(0.8, 0, 0),  # Initial position (will be optimized)
         radius=0.05,            # 5 cm radius
         turns=5,
         wire_diameter=0.0006,
@@ -459,22 +441,54 @@ def test_three_coil_system():
     print(f"  M_total: {system.M_total:.6e} H")
 
     # Optimize bucking coil position
-    print("\nOptimizing bucking coil position along X-axis between TX and RX...")
-
-    optimal_x_position = system.find_bucking_distance(
-        axis='x'
-    )
-    print(f"Optimal bucking coil X position: {optimal_x_position:.4f} m")
-    print(f"Final bucking coil position: {bucking_coil.position}")
-    print(f"Optimized M_total: {system.M_total:.6e} H")
-    
-    # Calculate the relative position
-    tx_x = tx_coil.position[0]
-    rx_x = rx_coil.position[0]
-    relative_pos = (optimal_x_position - tx_x) / (rx_x - tx_x)
-    print(f"Bucking coil is {relative_pos*100:.1f}% of the way from TX to RX")
+    print("\nOptimizing bucking coil position...")
+    try:
+        # First, let's explore the parameter space to find a good bracket
+        test_offsets = np.linspace(-0.5, 0.5, 20)  # Test both directions
+        M_values = []
+        original_pos = bucking_coil.position.copy()
+        
+        for offset in test_offsets:
+            new_pos = original_pos.copy()
+            new_pos[2] += offset  # z-axis offset
+            bucking_coil.position = new_pos
+            system._M_bk_rx = None  # Force recalculation
+            M_values.append(system.M_total)
+        
+        # Restore original position
+        bucking_coil.position = original_pos
+        system._M_bk_rx = None
+        
+        # Check for sign changes
+        sign_changes = []
+        for i in range(len(M_values)-1):
+            if M_values[i] * M_values[i+1] < 0:
+                sign_changes.append((test_offsets[i], test_offsets[i+1]))
+        
+        if sign_changes:
+            # Use the first sign change for optimization
+            bracket = sign_changes[0]
+            print(f"Found zero crossing between {bracket[0]:.3f}m and {bracket[1]:.3f}m")
+            bucking_distance = system.find_bucking_distance(axis='z', bracket=bracket)
+            print(f"Optimal bucking coil offset along z-axis: {bucking_distance:.4f} m")
+            print(f"Final bucking coil position: {bucking_coil.position}")
+            print(f"Optimized M_total: {system.M_total:.6e} H")
+        else:
+            print("No zero crossing found in the search range.")
+            print("Finding minimum absolute coupling...")
+            min_idx = np.argmin(np.abs(M_values))
+            optimal_offset = test_offsets[min_idx]
+            new_pos = original_pos.copy()
+            new_pos[2] += optimal_offset
+            bucking_coil.position = new_pos
+            system._M_bk_rx = None
+            print(f"Minimum coupling offset: {optimal_offset:.4f} m")
+            print(f"Final bucking coil position: {bucking_coil.position}")
+            print(f"Minimum M_total: {system.M_total:.6e} H")
             
-
+    except Exception as e:
+        print(f"Optimization failed: {e}")
+        print("Continuing with initial bucking position...")
     # Define frequency range for simulation
     frequencies = np.logspace(1, 6.5, 100)  # 100 Hz to 1 MHz
     v_in = 1.0  # 1V input

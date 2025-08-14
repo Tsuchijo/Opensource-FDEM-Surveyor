@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.optimize import brentq
-
+from utils import wire_gauge_to_metric
 
 class Coil():
     """
@@ -410,7 +410,7 @@ def test_three_coil_system():
         position=(0, 0, 0),
         radius=0.125,      # 12.5 cm radius
         turns=40,
-        wire_diameter=0.001,
+        wire_diameter=wire_gauge_to_metric(22), # 22 AWG wire
         resistivity=1.68e-8
     )
     
@@ -418,8 +418,8 @@ def test_three_coil_system():
         orientation='z',
         position=(1.0, 0, 0),  # 30 cm separation
         radius=0.05,           # 5 cm radius
-        turns=50,
-        wire_diameter=0.0008,
+        turns=250,
+        wire_diameter=wire_gauge_to_metric(26),  # 26 AWG wire
         resistivity=1.68e-8
     )
     
@@ -428,13 +428,18 @@ def test_three_coil_system():
         position=(0.8, 0, 0),  # Initial position (will be optimized)
         radius=0.05,            # 5 cm radius
         turns=5,
-        wire_diameter=0.0006,
+        wire_diameter=wire_gauge_to_metric(26), # 26 AWG wire
         resistivity=1.68e-8
     )
     
     # Create the three-coil system
     system = ThreeCoilSystem(tx_coil, rx_coil, bucking_coil, spacing=0.005)
     
+    print("Initial coil impedance")
+    print(f"  TX Coil: {tx_coil.resistance:.2f} Ohm, {tx_coil.inductance:.6e} H")
+    print(f"  RX Coil: {rx_coil.resistance:.2f} Ohm, {rx_coil.inductance:.6e} H")
+    print(f"  Bucking Coil: {bucking_coil.resistance:.2f} Ohm, {bucking_coil.inductance:.6e} H")
+
     print(f"Initial mutual inductances:")
     print(f"  M_tx_rx: {system.M_tx_rx:.6e} H")
     print(f"  M_bk_rx: {system.M_bk_rx:.6e} H")
@@ -501,7 +506,7 @@ def test_three_coil_system():
         self_capacitance_rx=10e-12,  # 10 pF self capacitance
         R_load=1e6,                  # 1 MΩ load resistance
         C_load=50e-12,               # 50 pF load capacitance
-        save_path='/home/pidud/FDEM-Scanner-2/three_coil_transfer_function.png'
+        save_path='./three_coil_transfer_function.png'
     )
         
     plt.show()

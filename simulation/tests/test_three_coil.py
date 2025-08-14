@@ -104,3 +104,29 @@ def test_mutual_inductance_coplanar_coils():
             assert rel_error < 0.3, f"Flux error too large at {separation}m separation: {rel_error:.3f}"
     
 
+def test_wire_gauge():
+    """
+    Test the wire gauge to metric diameter conversion.
+    """
+    from simulation.utils import wire_gauge_to_metric
+    
+    # Define a set of wire gauges and their expected diameters in mm
+    gauge_diameter_pairs = {
+        0: 8.251,
+        1: 7.348,
+        2: 6.544,
+        3: 5.827,
+        4: 5.189,
+        5: 4.621,
+        6: 4.115,
+        7: 3.665,
+        8: 3.264,
+        9: 2.906,
+        10: 2.588,
+        # Add more if needed
+    }
+    
+    for gauge, expected_diameter in gauge_diameter_pairs.items():
+        calculated_diameter = wire_gauge_to_metric(gauge) * 1000  # Convert to mm
+        assert np.isclose(calculated_diameter, expected_diameter, rtol=1e-3), \
+            f"Gauge {gauge}: expected {expected_diameter}, got {calculated_diameter}"

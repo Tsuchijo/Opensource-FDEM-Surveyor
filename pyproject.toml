@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "notebook>=7.4.5",
     "numpy>=2.3.2",
     "pytest>=8.4.1",
     "simpeg>=0.24.0",

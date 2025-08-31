@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from simulation.ThreeCoilSimulation import Coil
+from simulation.ThreeCoilSimulation import WoundCoil
 
 def dipole_field(m, r):
     """Theoretical dipole field at position r from dipole moment m."""
@@ -12,7 +12,7 @@ def dipole_field(m, r):
 
 def test_biot_savart_vs_dipole():
     # Setup coil parameters
-    coil = Coil(orientation='z', position=(0, 0, 0), radius=0.05, turns=100)
+    coil = WoundCoil(orientation='z', position=(0, 0, 0), radius=0.05, turns=100)
     current = 1.0
     
     # Calculate magnetic moment: m = current * area * normal_vector * turns
@@ -38,14 +38,14 @@ def test_mutual_inductance_coplanar_coils():
     current = 1.0
     
     # Transmitter coil at origin
-    tx_coil = Coil(orientation='z', position=(0, 0, 0), radius=0.02, turns=50)
+    tx_coil = WoundCoil(orientation='z', position=(0, 0, 0), radius=0.02, turns=50)
     
     # Test at various separations - all coils in the same xy-plane
     separations = [0.1, 0.2, 0.3, 0.5]  # distances in meters
     
     for separation in separations:
         # Receiver coil displaced along x-axis
-        rx_coil = Coil(orientation='z', position=(separation, 0, 0), radius=0.01, turns=25)
+        rx_coil = WoundCoil(orientation='z', position=(separation, 0, 0), radius=0.01, turns=25)
         
         # Calculate magnetic moment of transmitter coil
         tx_area = np.pi * tx_coil.radius**2

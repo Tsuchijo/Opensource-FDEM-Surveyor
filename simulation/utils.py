@@ -1,4 +1,5 @@
 import numpy as np
+from abc import ABC, abstractmethod
 
 def wire_gauge_to_metric(gauge):
     """
@@ -18,3 +19,15 @@ def wire_gauge_to_metric(gauge):
     diameter_m = 0.127 * (92 ** ((36 - gauge) / 39)) * 1e-3
     
     return diameter_m
+
+
+class BaseCoil(ABC):
+    @abstractmethod
+    def impedance(self, freqs):
+        """Return Z(f) array in ohms."""
+        pass
+
+    @abstractmethod
+    def mutual_inductance(self, other):
+        """Return mutual inductance with another coil (H)."""
+        pass

@@ -249,12 +249,14 @@ class WoundCoil(BaseCoil):
 
 
 class ThreeCoilSystem:
-    def __init__(self, tx_coil, rx_coil, bucking_coil=None, spacing=0.01, resolution_bfield=100):
+    def __init__(self, tx_coil, rx_coil, bucking_coil=None, spacing=0.01, resolution_bfield=100, R_load=1e6, C_load=0):
         self.tx_coil = tx_coil
         self.rx_coil = rx_coil
         self.bucking_coil = bucking_coil
         self.spacing = spacing
         self.resolution_bfield = resolution_bfield
+        self.R_load = R_load
+        self.C_load = C_load
 
         self._coords_rx = self._coil_plane_coordinates(self.rx_coil, spacing)
 
@@ -264,6 +266,13 @@ class ThreeCoilSystem:
         # Track coil geometry to detect changes
         self._last_tx_state = None
         self._last_bk_state = None
+        
+        # Store original positions for system movement
+        self._original_positions = {
+            'tx': self.tx_coil.position.copy(),
+            'rx': self.rx_coil.position.copy(),
+            'bucking': self.bucking_coil.position.copy() if self.bucking_coil else None
+        }
 
     def _coil_state(self, coil):
         """Return tuple describing coil geometry for change detection."""
@@ -351,6 +360,10 @@ class ThreeCoilSystem:
             optimal_pos[axis_idx] = optimized_position
             self.bucking_coil.position = optimal_pos
             self._M_bk_rx = None  # Force recalculation
+            
+            # Update the original position to the new optimal position
+            self._original_positions['bucking'] = optimal_pos.copy()
+            
             return optimized_position
         except ValueError as e:
             # Restore original position if optimization fails
@@ -358,9 +371,8 @@ class ThreeCoilSystem:
             self._M_bk_rx = None  # Force recalculation
             raise e
 
-    def simulate_primary_response(self, frequencies, v_in,
-                                   R_load=1e6, C_load=0, simulate_bucking=False):
-
+    def simulate_primary_response(self, frequencies, v_in, simulate_bucking=False):
+        
         omegas = 2 * np.pi * frequencies
         Z_tx = self.tx_coil.impedance(frequencies)
         if self.bucking_coil is not None:
@@ -374,14 +386,43 @@ class ThreeCoilSystem:
         else:
             V_emf_rx = 1j * omegas * self.M_tx_rx * I_tx
         H_rx_loaded = self.rx_coil.transfer_function_loaded(
-            np.array(frequencies), R_load, C_load
+            np.array(frequencies), self.R_load, self.C_load
         )
         V_meas = V_emf_rx * H_rx_loaded
         H_total = V_meas / v_in
 
         return H_total
+    
+    def move_system_to(self, position):
+        """
+        Move the entire three-coil system to a new position while maintaining relative coil spacing.
+        
+        Args:
+            position: 3-element array/tuple (x, y, z) for new TX coil position
+        """
+        position = np.array(position)
+        
+        # Calculate offset from original TX position
+        offset = position - self._original_positions['tx']
+        
+        # Move all coils by the same offset
+        self.tx_coil.position = self._original_positions['tx'] + offset
+        self.rx_coil.position = self._original_positions['rx'] + offset
+        if self.bucking_coil is not None:
+            self.bucking_coil.position = self._original_positions['bucking'] + offset
+            
+    def reset_position(self):
+        """Reset the system to its original position."""
+        self.tx_coil.position = self._original_positions['tx'].copy()
+        self.rx_coil.position = self._original_positions['rx'].copy()
+        if self.bucking_coil is not None:
+            self.bucking_coil.position = self._original_positions['bucking'].copy()
+            
+    def get_system_position(self):
+        """Get the current TX coil position (reference point for the system)."""
+        return self.tx_coil.position.copy()
 
-    def plot_transfer_function(self, frequencies, v_in=1.0, R_load=1e6, C_load=0,
+    def plot_transfer_function(self, frequencies, v_in=1.0,
                              save_path=None, figsize=(10, 8), dpi=300):
         """
         Plot the transfer function of the three-coil system.
@@ -400,9 +441,7 @@ class ThreeCoilSystem:
         tuple: (figure, (ax1, ax2), transfer_function) - matplotlib objects and computed H
         """
         # Calculate transfer function
-        H = self.simulate_primary_response(
-            frequencies, v_in, R_load, C_load
-        )
+        H = self.simulate_primary_response(frequencies, v_in)
         
         # Calculate magnitude and phase
         magnitude_dB = 20 * np.log10(np.abs(H))

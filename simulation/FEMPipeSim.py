@@ -91,13 +91,13 @@ class FEMPipe:
 
 
 class PipeSimulation:
-    def __init__(self, three_coil, fem_pipes):
+    def __init__(self, scanner, pipes):
         """
-        three_coil: ThreeCoilSystem object
-        fem_pipe: FEMPipe object
+        scanner: ThreeCoilSystem object
+        pipes: FEMPipe object or list of FEMPipe objects
         """
-        self.three_coil = three_coil
-        self.fem_pipes = fem_pipes if isinstance(fem_pipes, list) else [fem_pipes]
+        self.three_coil = scanner
+        self.fem_pipes = pipes if isinstance(pipes, list) else [pipes]
 
     def transfer_function(self, freqs):
         freqs = np.atleast_1d(freqs)
@@ -132,4 +132,111 @@ class PipeSimulation:
         return H
     
     def simulate(self, position, freqs):
-        return self.transfer_function(freqs)
+        """
+        Simulate the electromagnetic response at a specific surveyor position.
+        
+        Args:
+            position: 3-element array/tuple (x, y, z) for surveyor position
+            freqs: frequency or array of frequencies
+            R_load: load resistance (uses system default if None)
+            C_load: load capacitance (uses system default if None)
+            hs_hp: if True, return HS/HP response, otherwise return transfer function
+        
+        Returns:
+            Complex response array
+        """
+        position = np.array(position)
+                
+        # Move system to new position
+        self.three_coil.move_system_to(position)
+        
+        try:
+            return self.transfer_function(freqs)
+        finally:
+            # Restore original positions
+            self.three_coil.reset_position()
+    
+    def grid_survey(self, x_range, y_range, z_height, frequencies):
+        """
+        Perform a grid survey over the specified area.
+        
+        Args:
+            x_range: tuple (x_min, x_max, num_points) for x-axis grid
+            y_range: tuple (y_min, y_max, num_points) for y-axis grid  
+            z_height: height above the target to perform the survey
+            frequencies: array of frequencies to simulate
+        
+        Returns:
+            tuple: (x_grid, y_grid, real_response, imag_response)
+        """
+        x_min, x_max, nx = x_range
+        y_min, y_max, ny = y_range
+        
+        x_positions = np.linspace(x_min, x_max, nx)
+        y_positions = np.linspace(y_min, y_max, ny)
+        
+        x_grid, y_grid = np.meshgrid(x_positions, y_positions)
+        
+        real_response = np.zeros((ny, nx))
+        imag_response = np.zeros((ny, nx))
+        
+        print(f"Running grid search over {nx}x{ny} = {nx*ny} points...")
+        
+        for i, y in enumerate(y_positions):
+            for j, x in enumerate(x_positions):
+                position = np.array([x, y, z_height])
+                response = self.simulate(position, frequencies)
+                
+                # Take response at middle frequency for visualization
+                mid_freq_idx = len(frequencies) // 2
+                complex_resp = response[mid_freq_idx]
+                
+                real_response[i, j] = np.real(complex_resp)
+                imag_response[i, j] = np.imag(complex_resp)
+                
+            if (i + 1) % 5 == 0:
+                print(f"Completed {i+1}/{ny} rows")
+        
+        return x_grid, y_grid, real_response, imag_response
+    
+    def line_survey(self, start_point, end_point, num_points, z_height, frequencies):
+        """
+        Perform a line survey between two points.
+        
+        Args:
+            start_point: (x, y) coordinates of transect start
+            end_point: (x, y) coordinates of transect end
+            num_points: number of measurement points along the transect
+            z_height: height above the target to perform the survey
+            frequencies: array of frequencies to simulate
+        
+        Returns:
+            tuple: (distances, real_response, imag_response)
+        """
+        # Create points along the transect
+        x_points = np.linspace(start_point[0], end_point[0], num_points)
+        y_points = np.linspace(start_point[1], end_point[1], num_points)
+        
+        # Calculate distances from start point for x-axis
+        distances = np.sqrt((x_points - start_point[0])**2 + (y_points - start_point[1])**2)
+        
+        real_response = np.zeros(num_points)
+        imag_response = np.zeros(num_points)
+        
+        print(f"Running line survey over {num_points} points...")
+        
+        for i in range(num_points):
+            position = np.array([x_points[i], y_points[i], z_height])
+            response = self.simulate(position, frequencies)
+            
+            # Take response at middle frequency for visualization
+            mid_freq_idx = len(frequencies) // 2
+            complex_resp = response[mid_freq_idx]
+            
+            real_response[i] = np.real(complex_resp)
+            imag_response[i] = np.imag(complex_resp)
+            
+            if (i + 1) % 10 == 0:
+                print(f"Completed {i+1}/{num_points} points")
+        
+        return distances, real_response, imag_response
